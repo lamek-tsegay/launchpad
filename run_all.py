@@ -15,10 +15,14 @@ Usage:
     ./.venv/bin/python3 run_all.py            # start + verify, then exit (processes keep running)
     ./.venv/bin/python3 run_all.py --stop     # stop everything this script started
     ./.venv/bin/python3 run_all.py --status   # just re-check status, don't (re)start anything
+    ./.venv/bin/python3 run_all.py --demo     # demo config (see DEMO.md): stops anything stale first,
+                                               # runs fast+failure-safe, mailbox scoped to gateway only,
+                                               # prints the ASI:One entry point at the end
 """
 
 import argparse
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -28,6 +32,18 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+# --demo sets these (only where the caller hasn't already set them -- an
+# explicit export always wins) *before* `import config`, since config.py
+# reads LAUNCHPAD_MODE/LAUNCHPAD_FAILURES/LAUNCHPAD_MAILBOX_AGENTS at
+# import time, not lazily -- setting them after the import would be too
+# late for anything config.py already computed from them (MAILBOX_AGENTS,
+# FAILURES, DEMO_MODE-derived timeouts).
+if "--demo" in sys.argv:
+    os.environ["LAUNCHPAD_MODE"] = "demo"
+    os.environ.setdefault("LAUNCHPAD_FAILURES", "{}")  # ops_insurance still fails -- structural, not FAILURES-gated
+    os.environ.setdefault("LAUNCHPAD_MAILBOX_AGENTS", "gateway")  # only gateway chat-discoverable -- see AGENTVERSE.md
+    os.environ.setdefault("UAGENTS_TRACE_DB", str(Path(__file__).resolve().parent / "uagents_trace.db"))
 
 import config
 
@@ -105,10 +121,13 @@ def _almanac_status(address: str) -> dict | None:
         return None
 
 
-def start() -> None:
+def start(*, force: bool = False) -> None:
     if PID_FILE.exists():
-        print(f"{PID_FILE} already exists -- run with --stop first, or delete it if the processes are already gone.")
-        sys.exit(1)
+        if not force:
+            print(f"{PID_FILE} already exists -- run with --stop first, or delete it if the processes are already gone.")
+            sys.exit(1)
+        print(f"{PID_FILE} already exists -- stopping the stale run first (--demo always starts clean).")
+        stop()
 
     LOG_DIR.mkdir(exist_ok=True)
     pids: dict[str, int] = {}
@@ -290,15 +309,30 @@ def status() -> None:
             print(f"  {name}: https://agentverse.ai/inspect/?uri={uri}&address={config.AGENT_ADDRESSES[name]}")
 
 
+def _print_asi_one_entry_point() -> None:
+    address = config.AGENT_ADDRESSES["gateway"]
+    handle = config._AGENT_DETAILS.get("gateway", {}).get("handle")
+    print("\n" + "=" * 72)
+    print("ASI:One entry point -- this is the only chat-addressable agent.")
+    if handle:
+        print(f"  Search Agentverse/ASI:One for: {handle}")
+    print(f"  Address (unambiguous fallback): {address}")
+    print("=" * 72)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--stop", action="store_true")
     parser.add_argument("--status", action="store_true")
+    parser.add_argument("--demo", action="store_true", help="stop anything stale, start in demo config, print the ASI:One entry point")
     args = parser.parse_args()
 
     if args.stop:
         stop()
     elif args.status:
         status()
+    elif args.demo:
+        start(force=True)
+        _print_asi_one_entry_point()
     else:
         start()
