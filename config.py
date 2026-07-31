@@ -199,6 +199,28 @@ class _FallbackResolver(Resolver):
 _hybrid_resolver = _FallbackResolver(_local_resolver, GlobalResolver())
 
 
+# `name="gateway"` alone is not a safe way to find this agent in a real
+# ASI:One/Agentverse session: Agentverse is a shared, global directory, not
+# scoped to this project, so "gateway" collides with anyone else's agent of
+# the same name. `handle`/`description` (both real `Agent()` fields,
+# published by default -- `publish_agent_details=True` is uAgents' own
+# default) give it a distinctive, searchable identity instead of requiring
+# the 65-char address to be pasted in. Only set for `gateway`: it's the
+# only agent meant to be found this way (see AGENTVERSE.md and the
+# MAILBOX_AGENTS comment above) -- the other 31 don't need a public
+# identity, chat-searchable or otherwise.
+_AGENT_DETAILS = {
+    "gateway": {
+        "handle": "launchpad-demo-gateway",
+        "description": (
+            "Launchpad demo entry point. Send a business idea (e.g. \"I want to start a "
+            "food truck in Austin, TX\") and get back a starter kit: brand, website copy, "
+            "market scan, and a compliance checklist, assembled by a 33-agent pipeline."
+        ),
+    },
+}
+
+
 def build_agent(name: str) -> Agent:
     """Construct one of this system's agents with its fixed seed. Agents in
     MAILBOX_AGENTS get a real Agentverse mailbox and no local endpoint;
@@ -214,8 +236,9 @@ def build_agent(name: str) -> Agent:
     self-reports, and a wrong self-report is the bug that sent us here.
     """
     port = PROCESS_PORTS[AGENT_PROCESS[name]]
+    details = _AGENT_DETAILS.get(name, {})
     if name in MAILBOX_AGENTS:
-        return Agent(name=name, seed=AGENT_SEEDS[name], port=port, mailbox=True, resolve=_hybrid_resolver)
+        return Agent(name=name, seed=AGENT_SEEDS[name], port=port, mailbox=True, resolve=_hybrid_resolver, **details)
     return Agent(
         name=name,
         seed=AGENT_SEEDS[name],
